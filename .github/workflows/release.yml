@@ -21,7 +21,31 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # GNU ddrescue no compila en MinGW puro (termios/fsync/sigaction).
+  # Cross-compilamos en Ubuntu con shims POSIX → PE32+ estático (libgcc/libstdc++).
+  windows-ddrescue:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install MinGW cross toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y g++-mingw-w64-x86-64 make lzip wget
+
+      - name: Build Windows ddrescue sidecar
+        run: bash scripts/build-ddrescue-windows.sh
+
+      - name: Upload Windows ddrescue sidecar
+        uses: actions/upload-artifact@v4
+        with:
+          name: ddrescue-windows-sidecar
+          path: src-tauri/binaries/ddrescue-x86_64-pc-windows-msvc.exe
+          if-no-files-found: error
+
   publish:
+    needs: windows-ddrescue
     strategy:
       fail-fast: false
       matrix:
@@ -83,69 +107,12 @@ jobs:
           REQUIRE_DDRESCUE: "1"
         run: bash scripts/fetch-ddrescue.sh
 
-      - name: Setup MSYS2 (Windows ddrescue)
+      - name: Download Windows ddrescue sidecar
         if: matrix.platform == 'windows-latest'
-        uses: msys2/setup-msys2@v2
+        uses: actions/download-artifact@v4
         with:
-          msystem: UCRT64
-          update: true
-          install: >-
-            mingw-w64-ucrt-x86_64-gcc
-            mingw-w64-ucrt-x86_64-make
-            make
-            wget
-            lzip
-            tar
-            coreutils
-
-      - name: Build ddrescue sidecar (Windows)
-        if: matrix.platform == 'windows-latest'
-        shell: msys2 {0}
-        run: |
-          set -euo pipefail
-          VERSION=1.29
-          JOBS="${NUMBER_OF_PROCESSORS:-2}"
-          command -v nproc >/dev/null 2>&1 && JOBS="$(nproc)" || true
-
-          # GNU ddrescue's Makefile needs MSYS make (/bin/sh recipes), not mingw32-make.
-          command -v make >/dev/null 2>&1 || { echo "ERROR: make not found"; exit 127; }
-          command -v g++ >/dev/null 2>&1 || { echo "ERROR: g++ not found"; which g++ || true; echo "PATH=$PATH"; exit 127; }
-
-          echo "g++: $(g++ --version | head -1)"
-          echo "make: $(make --version | head -1)"
-          echo "JOBS=$JOBS"
-
-          cd /tmp
-          rm -rf "ddrescue-${VERSION}" "ddrescue-${VERSION}.tar.lz"
-          wget -q "https://ftp.gnu.org/gnu/ddrescue/ddrescue-${VERSION}.tar.lz"
-          tar --lzip -xf "ddrescue-${VERSION}.tar.lz"
-          cd "ddrescue-${VERSION}"
-
-          # Pass flags via CXXFLAGS/LDFLAGS — do NOT put spaces in CXX (breaks configure).
-          ./configure \
-            CXX=g++ \
-            "CXXFLAGS=-Wall -W -O2 -static-libgcc -static-libstdc++" \
-            "LDFLAGS=-static-libgcc -static-libstdc++"
-
-          make -j"$JOBS" V=1
-
-          SRC=""
-          for cand in ddrescue.exe ddrescue; do
-            if [[ -f "$cand" ]]; then SRC="$cand"; break; fi
-          done
-          if [[ -z "$SRC" ]]; then
-            echo "ERROR: ddrescue binary not produced"
-            ls -la
-            exit 1
-          fi
-
-          WORKSPACE_UNIX="$(cygpath -u "$GITHUB_WORKSPACE")"
-          DEST="${WORKSPACE_UNIX}/src-tauri/binaries/ddrescue-x86_64-pc-windows-msvc.exe"
-          mkdir -p "$(dirname "$DEST")"
-          cp -f "$SRC" "$DEST"
-          chmod +x "$DEST"
-          "$DEST" --version | head -3
-          ls -lh "$DEST"
+          name: ddrescue-windows-sidecar
+          path: src-tauri/binaries
 
       - name: Install frontend dependencies
         run: npm ci

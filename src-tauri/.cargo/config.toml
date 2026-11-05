@@ -1,0 +1,7 @@
+# Sectora en macOS se orienta exclusivamente a Apple Silicon.
+# En hosts Darwin se fuerza el target nativo aarch64.
+[build]
+# target se deja implícito en el host; documentado en README.
+
+[target.aarch64-apple-darwin]
+rustflags = []

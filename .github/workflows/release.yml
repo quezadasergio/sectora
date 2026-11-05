@@ -92,9 +92,11 @@ jobs:
           install: >-
             mingw-w64-ucrt-x86_64-gcc
             mingw-w64-ucrt-x86_64-make
+            make
             wget
             lzip
             tar
+            coreutils
 
       - name: Build ddrescue sidecar (Windows)
         if: matrix.platform == 'windows-latest'
@@ -102,17 +104,47 @@ jobs:
         run: |
           set -euo pipefail
           VERSION=1.29
+          JOBS="${NUMBER_OF_PROCESSORS:-2}"
+          if command -v nproc >/dev/null 2>&1; then
+            JOBS="$(nproc)"
+          fi
+          # Prefer mingw32-make from UCRT64 toolchain; fall back to make.
+          if command -v mingw32-make >/dev/null 2>&1; then
+            MAKE=mingw32-make
+          elif command -v make >/dev/null 2>&1; then
+            MAKE=make
+          else
+            echo "ERROR: neither mingw32-make nor make found in PATH"
+            echo "PATH=$PATH"
+            exit 127
+          fi
+          echo "Using MAKE=$MAKE JOBS=$JOBS"
           cd /tmp
+          rm -rf "ddrescue-${VERSION}" "ddrescue-${VERSION}.tar.lz"
           wget -q "https://ftp.gnu.org/gnu/ddrescue/ddrescue-${VERSION}.tar.lz"
           tar --lzip -xf "ddrescue-${VERSION}.tar.lz"
           cd "ddrescue-${VERSION}"
+          # Static libgcc/libstdc++ so the NSIS-bundled sidecar does not need MinGW DLLs.
+          export CXX="g++ -static-libgcc -static-libstdc++"
+          export LDFLAGS="-static-libgcc -static-libstdc++"
           ./configure
-          make -j"$(nproc)"
-          DEST="${GITHUB_WORKSPACE}/src-tauri/binaries/ddrescue-x86_64-pc-windows-msvc.exe"
+          "$MAKE" -j"$JOBS"
+          # Binary may be ddrescue or ddrescue.exe depending on toolchain.
+          SRC=""
+          for cand in ddrescue.exe ddrescue; do
+            if [[ -f "$cand" ]]; then SRC="$cand"; break; fi
+          done
+          if [[ -z "$SRC" ]]; then
+            echo "ERROR: ddrescue binary not produced"
+            ls -la
+            exit 1
+          fi
+          WORKSPACE_UNIX="$(cygpath -u "$GITHUB_WORKSPACE")"
+          DEST="${WORKSPACE_UNIX}/src-tauri/binaries/ddrescue-x86_64-pc-windows-msvc.exe"
           mkdir -p "$(dirname "$DEST")"
-          cp -f ddrescue.exe "$DEST"
+          cp -f "$SRC" "$DEST"
           chmod +x "$DEST"
-          "./ddrescue.exe" --version | head -3
+          "$DEST" --version | head -3
           ls -lh "$DEST"
 
       - name: Install frontend dependencies

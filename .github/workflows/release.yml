@@ -105,31 +105,30 @@ jobs:
           set -euo pipefail
           VERSION=1.29
           JOBS="${NUMBER_OF_PROCESSORS:-2}"
-          if command -v nproc >/dev/null 2>&1; then
-            JOBS="$(nproc)"
-          fi
-          # Prefer mingw32-make from UCRT64 toolchain; fall back to make.
-          if command -v mingw32-make >/dev/null 2>&1; then
-            MAKE=mingw32-make
-          elif command -v make >/dev/null 2>&1; then
-            MAKE=make
-          else
-            echo "ERROR: neither mingw32-make nor make found in PATH"
-            echo "PATH=$PATH"
-            exit 127
-          fi
-          echo "Using MAKE=$MAKE JOBS=$JOBS"
+          command -v nproc >/dev/null 2>&1 && JOBS="$(nproc)" || true
+
+          # GNU ddrescue's Makefile needs MSYS make (/bin/sh recipes), not mingw32-make.
+          command -v make >/dev/null 2>&1 || { echo "ERROR: make not found"; exit 127; }
+          command -v g++ >/dev/null 2>&1 || { echo "ERROR: g++ not found"; which g++ || true; echo "PATH=$PATH"; exit 127; }
+
+          echo "g++: $(g++ --version | head -1)"
+          echo "make: $(make --version | head -1)"
+          echo "JOBS=$JOBS"
+
           cd /tmp
           rm -rf "ddrescue-${VERSION}" "ddrescue-${VERSION}.tar.lz"
           wget -q "https://ftp.gnu.org/gnu/ddrescue/ddrescue-${VERSION}.tar.lz"
           tar --lzip -xf "ddrescue-${VERSION}.tar.lz"
           cd "ddrescue-${VERSION}"
-          # Static libgcc/libstdc++ so the NSIS-bundled sidecar does not need MinGW DLLs.
-          export CXX="g++ -static-libgcc -static-libstdc++"
-          export LDFLAGS="-static-libgcc -static-libstdc++"
-          ./configure
-          "$MAKE" -j"$JOBS"
-          # Binary may be ddrescue or ddrescue.exe depending on toolchain.
+
+          # Pass flags via CXXFLAGS/LDFLAGS — do NOT put spaces in CXX (breaks configure).
+          ./configure \
+            CXX=g++ \
+            "CXXFLAGS=-Wall -W -O2 -static-libgcc -static-libstdc++" \
+            "LDFLAGS=-static-libgcc -static-libstdc++"
+
+          make -j"$JOBS" V=1
+
           SRC=""
           for cand in ddrescue.exe ddrescue; do
             if [[ -f "$cand" ]]; then SRC="$cand"; break; fi
@@ -139,6 +138,7 @@ jobs:
             ls -la
             exit 1
           fi
+
           WORKSPACE_UNIX="$(cygpath -u "$GITHUB_WORKSPACE")"
           DEST="${WORKSPACE_UNIX}/src-tauri/binaries/ddrescue-x86_64-pc-windows-msvc.exe"
           mkdir -p "$(dirname "$DEST")"

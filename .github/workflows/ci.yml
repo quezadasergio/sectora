@@ -1,0 +1,58 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+
+      - name: Install ddrescue
+        run: brew install ddrescue
+
+      - name: Prepare sidecar
+        env:
+          REQUIRE_DDRESCUE: "1"
+        run: bash scripts/fetch-ddrescue.sh
+
+      - name: Validate release prerequisites
+        run: bash scripts/validate-release.sh
+
+      - name: npm ci
+        run: npm ci
+
+      - name: Frontend typecheck + build
+        run: npm run build
+
+      - name: Rust tests
+        working-directory: src-tauri
+        run: cargo test --all-features
+
+      - name: Verify ddrescue sidecar runs
+        run: |
+          BIN=src-tauri/binaries/ddrescue-aarch64-apple-darwin
+          "$BIN" --version | head -3

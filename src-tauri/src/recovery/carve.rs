@@ -197,17 +197,37 @@ mod tests {
 }
 
 #[cfg(test)]
-mod demo_img {
+mod multi_sig {
     use super::*;
+    use std::io::Write;
+
+    /// Self-contained fixture (does not depend on gitignored demo/*.img).
     #[test]
-    fn carve_demo_img() {
-        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../demo/clonado.img");
-        let hits = carve_scan(path, 20).expect("carve");
-        println!("hits={}", hits.len());
-        for h in &hits {
-            println!("{} @{} size={}", h.fs_type, /*offset from locator*/ h.locator, h.size);
-        }
-        assert!(hits.iter().any(|h| h.fs_type.contains("JPEG")));
-        assert!(hits.iter().any(|h| h.fs_type.contains("PDF")));
+    fn carves_jpeg_and_pdf() {
+        let dir = std::env::temp_dir().join("sectora-carve-multi");
+        let _ = std::fs::create_dir_all(&dir);
+        let path = dir.join("sample.bin");
+        let mut data = vec![0u8; 4096];
+        // JPEG
+        data[100..104].copy_from_slice(&[0xFF, 0xD8, 0xFF, 0xE0]);
+        data[200..202].copy_from_slice(&[0xFF, 0xD9]);
+        // PDF
+        data[500..505].copy_from_slice(b"%PDF-");
+        data[600..605].copy_from_slice(b"%%EOF");
+        let mut f = File::create(&path).unwrap();
+        f.write_all(&data).unwrap();
+        drop(f);
+
+        let hits = carve_scan(path.to_str().unwrap(), 20).expect("carve");
+        assert!(
+            hits.iter().any(|h| h.fs_type.contains("JPEG")),
+            "expected JPEG hit, got {:?}",
+            hits.iter().map(|h| &h.fs_type).collect::<Vec<_>>()
+        );
+        assert!(
+            hits.iter().any(|h| h.fs_type.contains("PDF")),
+            "expected PDF hit, got {:?}",
+            hits.iter().map(|h| &h.fs_type).collect::<Vec<_>>()
+        );
     }
 }

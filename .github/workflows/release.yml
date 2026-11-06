@@ -50,7 +50,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - platform: macos-14
+          - platform: macos-15
             rust_target: aarch64-apple-darwin
             args: --target aarch64-apple-darwin
             bundles: app,dmg
@@ -98,7 +98,7 @@ jobs:
             gddrescue
 
       - name: Install macOS ddrescue
-        if: matrix.platform == 'macos-14'
+        if: matrix.platform == 'macos-15'
         run: brew install ddrescue
 
       - name: Prepare ddrescue sidecar (Unix)

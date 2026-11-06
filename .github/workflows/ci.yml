@@ -14,7 +14,8 @@ concurrency:
 
 jobs:
   test:
-    runs-on: macos-14
+    # macos-14 retired by GitHub on 2026-11-02; arm64 Apple Silicon stays on 15+.
+    runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
 
